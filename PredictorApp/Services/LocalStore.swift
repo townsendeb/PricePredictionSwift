@@ -109,7 +109,7 @@ final class LocalStore {
     }
 
     private func executeStatements(_ sql: String) {
-        var stmt: OpaquePointer?
+        var _: OpaquePointer?
         let cSql = sql.cString(using: .utf8)
         sqlite3_exec(db, cSql, nil, nil, nil)
     }
@@ -198,18 +198,15 @@ final class LocalStore {
                 sqlite3_bind_text(stmt, 1, PredictionType.weather.rawValue, -1, SQLITE_TRANSIENT)
                 if sqlite3_step(stmt) == SQLITE_ROW, let p = rowToPrediction(stmt) { out.append(p) }
             }
-            // Crypto: latest per (type, target_slot) for 10am and 5pm
+            // Crypto: latest per type (next-hour prediction)
             for type in PredictionType.cryptoTypes.map(\.rawValue) {
-                for slot in TargetSlot.allCases.map(\.rawValue) {
-                    let sql = "SELECT * FROM predictions WHERE type = ? AND target_slot = ? ORDER BY created_at DESC LIMIT 1;"
-                    var stmt2: OpaquePointer?
-                    guard sqlite3_prepare_v2(db, sql, -1, &stmt2, nil) == SQLITE_OK else { continue }
-                    defer { sqlite3_finalize(stmt2) }
-                    sqlite3_bind_text(stmt2, 1, type, -1, SQLITE_TRANSIENT)
-                    sqlite3_bind_text(stmt2, 2, slot, -1, SQLITE_TRANSIENT)
-                    if sqlite3_step(stmt2) == SQLITE_ROW, let p = rowToPrediction(stmt2) {
-                        out.append(p)
-                    }
+                let sql = "SELECT * FROM predictions WHERE type = ? ORDER BY created_at DESC LIMIT 1;"
+                var stmt2: OpaquePointer?
+                guard sqlite3_prepare_v2(db, sql, -1, &stmt2, nil) == SQLITE_OK else { continue }
+                defer { sqlite3_finalize(stmt2) }
+                sqlite3_bind_text(stmt2, 1, type, -1, SQLITE_TRANSIENT)
+                if sqlite3_step(stmt2) == SQLITE_ROW, let p = rowToPrediction(stmt2) {
+                    out.append(p)
                 }
             }
         }
@@ -235,7 +232,7 @@ final class LocalStore {
         var out: [Prediction] = []
         queue.sync {
             let sql: String
-            if let t = type {
+            if type != nil {
                 sql = "SELECT * FROM predictions WHERE actual_value IS NOT NULL AND type = ? ORDER BY created_at DESC LIMIT ?;"
             } else {
                 sql = "SELECT * FROM predictions WHERE actual_value IS NOT NULL ORDER BY created_at DESC LIMIT ?;"
@@ -273,8 +270,7 @@ final class LocalStore {
     }
 
     func getWeatherPredictionForTargetDate(_ targetDateISO: String) -> Prediction? {
-        let start = "\(targetDateISO)T00:00:00Z"
-        let end = "\(targetDateISO)T23:59:59.999Z"
+        guard let range = Calendar.utcRangeForLADate(targetDateISO) else { return nil }
         var result: Prediction?
         queue.sync {
             let sql = "SELECT * FROM predictions WHERE type = ? AND target_time >= ? AND target_time <= ? ORDER BY created_at DESC LIMIT 1;"
@@ -282,8 +278,8 @@ final class LocalStore {
             guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
             defer { sqlite3_finalize(stmt) }
             sqlite3_bind_text(stmt, 1, PredictionType.weather.rawValue, -1, SQLITE_TRANSIENT)
-            sqlite3_bind_text(stmt, 2, start, -1, SQLITE_TRANSIENT)
-            sqlite3_bind_text(stmt, 3, end, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 2, range.start, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 3, range.end, -1, SQLITE_TRANSIENT)
             if sqlite3_step(stmt) == SQLITE_ROW {
                 result = rowToPrediction(stmt)
             }
@@ -351,7 +347,7 @@ final class LocalStore {
         var out: [Learning] = []
         queue.sync {
             let sql: String
-            if let t = modelType {
+            if modelType != nil {
                 sql = "SELECT * FROM learnings WHERE model_type = ? ORDER BY learned_at DESC LIMIT ?;"
             } else {
                 sql = "SELECT * FROM learnings ORDER BY learned_at DESC LIMIT ?;"

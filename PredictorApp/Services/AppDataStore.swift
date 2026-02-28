@@ -24,16 +24,9 @@ final class AppDataStore: ObservableObject {
     var latestWeatherToday: Prediction? { store.getWeatherPredictionForTargetDate(todayISO) }
     var latestWeatherTomorrow: Prediction? { store.getWeatherPredictionForTargetDate(tomorrowISO) }
 
-    func latestCrypto(type: PredictionType, slot: TargetSlot) -> Prediction? {
-        predictions.first { $0.type == type.rawValue && $0.targetSlot == slot.rawValue }
-    }
-
-    var latestBitcoin10am: Prediction? { latestCrypto(type: .bitcoin, slot: .am10) }
-    var latestBitcoin5pm: Prediction? { latestCrypto(type: .bitcoin, slot: .pm5) }
-    var latestEthereum10am: Prediction? { latestCrypto(type: .ethereum, slot: .am10) }
-    var latestEthereum5pm: Prediction? { latestCrypto(type: .ethereum, slot: .pm5) }
-    var latestSolana10am: Prediction? { latestCrypto(type: .solana, slot: .am10) }
-    var latestSolana5pm: Prediction? { latestCrypto(type: .solana, slot: .pm5) }
+    var latestBitcoin: Prediction? { predictions.first { $0.type == PredictionType.bitcoin.rawValue } }
+    var latestEthereum: Prediction? { predictions.first { $0.type == PredictionType.ethereum.rawValue } }
+    var latestSolana: Prediction? { predictions.first { $0.type == PredictionType.solana.rawValue } }
 
     /// Load predictions and learnings from SQLite (no network).
     func loadFromLocalStore() {

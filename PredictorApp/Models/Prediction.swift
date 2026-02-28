@@ -200,4 +200,18 @@ extension Calendar {
         guard let tomorrow = date(byAdding: .day, value: 1, to: now) else { return dateISOString(for: now) }
         return dateISOString(for: tomorrow)
     }
+
+    /// UTC ISO range (start, end) for the given LA date string "YYYY-MM-DD". Use for querying weather by target date.
+    static func utcRangeForLADate(_ dateISO: String) -> (start: String, end: String)? {
+        let parts = dateISO.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        var cal = Calendar.la
+        var comps = DateComponents(year: parts[0], month: parts[1], day: parts[2])
+        guard let startOfDay = cal.date(from: comps),
+              let nextDay = cal.date(byAdding: .day, value: 1, to: startOfDay),
+              let endOfDay = cal.date(byAdding: .second, value: -1, to: nextDay) else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = TimeZone(identifier: "UTC")!
+        return (formatter.string(from: startOfDay), formatter.string(from: endOfDay))
+    }
 }
