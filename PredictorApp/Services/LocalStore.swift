@@ -271,6 +271,22 @@ final class LocalStore {
 
     func getWeatherPredictionForTargetDate(_ targetDateISO: String) -> Prediction? {
         guard let range = Calendar.utcRangeForLADate(targetDateISO) else { return nil }
+        return getWeatherPredictionInRange(range.start, range.end)
+    }
+
+    /// Today's high: prediction whose target is end of the given LA date (avoids returning "tomorrow" row that targets start of same day).
+    func getWeatherPredictionForTodayHigh(_ targetDateISO: String) -> Prediction? {
+        guard let range = Calendar.utcRangeForLAEndOfDay(targetDateISO) else { return nil }
+        return getWeatherPredictionInRange(range.start, range.end)
+    }
+
+    /// Tomorrow's high: prediction whose target is start of the given LA date (avoids returning "today" row that targets end of previous day).
+    func getWeatherPredictionForTomorrowHigh(_ targetDateISO: String) -> Prediction? {
+        guard let range = Calendar.utcRangeForLAStartOfDay(targetDateISO) else { return nil }
+        return getWeatherPredictionInRange(range.start, range.end)
+    }
+
+    private func getWeatherPredictionInRange(_ start: String, _ end: String) -> Prediction? {
         var result: Prediction?
         queue.sync {
             let sql = "SELECT * FROM predictions WHERE type = ? AND target_time >= ? AND target_time <= ? ORDER BY created_at DESC LIMIT 1;"
@@ -278,8 +294,8 @@ final class LocalStore {
             guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
             defer { sqlite3_finalize(stmt) }
             sqlite3_bind_text(stmt, 1, PredictionType.weather.rawValue, -1, SQLITE_TRANSIENT)
-            sqlite3_bind_text(stmt, 2, range.start, -1, SQLITE_TRANSIENT)
-            sqlite3_bind_text(stmt, 3, range.end, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 2, start, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 3, end, -1, SQLITE_TRANSIENT)
             if sqlite3_step(stmt) == SQLITE_ROW {
                 result = rowToPrediction(stmt)
             }

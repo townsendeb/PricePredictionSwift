@@ -28,13 +28,13 @@ struct PredictorService {
 
         let recent = getRecentWeatherTemps(limit: 7)
 
-        // Today's high: only insert if no prediction for today yet
-        if store.getWeatherPredictionForTargetDate(todayISO) == nil {
+        // Today's high: only insert if no prediction for end-of-today slot yet. Always use todayActualHigh (or today-only fallbacks); never use tomorrowHigh.
+        if store.getWeatherPredictionForTodayHigh(todayISO) == nil {
             let todayPredicted: Double
             let todayExplanation: String
             if let todayHigh = weatherResult.todayActualHigh {
                 todayPredicted = todayHigh
-                todayExplanation = "Forecast for today: \(Int(todayPredicted))°F."
+                todayExplanation = "Forecast for today's high: \(Int(todayPredicted))°F."
             } else if !recent.isEmpty {
                 let avg = recent.reduce(0, +) / Double(recent.count)
                 todayPredicted = avg
@@ -54,20 +54,20 @@ struct PredictorService {
             )
         }
 
-        // Tomorrow's high: only insert if no prediction for tomorrow yet
-        if store.getWeatherPredictionForTargetDate(tomorrowISO) == nil {
+        // Tomorrow's high: only insert if no prediction for start-of-tomorrow slot yet. Always use tomorrowHigh (or tomorrow-only fallbacks); never use todayActualHigh.
+        if store.getWeatherPredictionForTomorrowHigh(tomorrowISO) == nil {
             let tomorrowPredicted: Double
             let tomorrowExplanation: String
             if let tomorrowHigh = weatherResult.tomorrowHigh, recent.isEmpty {
                 tomorrowPredicted = tomorrowHigh
-                tomorrowExplanation = "Forecast for tomorrow: \(Int(tomorrowPredicted))°F."
+                tomorrowExplanation = "Forecast for tomorrow's high: \(Int(tomorrowPredicted))°F."
             } else if !recent.isEmpty {
                 let avg = recent.reduce(0, +) / Double(recent.count)
                 tomorrowPredicted = weatherResult.tomorrowHigh ?? avg
-                tomorrowExplanation = "Based on recent highs and forecast; predicting \(Int(tomorrowPredicted))°F for tomorrow."
+                tomorrowExplanation = "Based on recent highs and forecast; predicting \(Int(tomorrowPredicted))°F for tomorrow's high."
             } else {
                 tomorrowPredicted = weatherResult.tomorrowHigh ?? 70
-                tomorrowExplanation = "Initial prediction \(Int(tomorrowPredicted))°F from current forecast."
+                tomorrowExplanation = "Initial prediction for tomorrow: \(Int(tomorrowPredicted))°F from forecast."
             }
             let tomorrowRounded = (tomorrowPredicted * 10).rounded() / 10
             _ = store.insertPrediction(
@@ -101,17 +101,33 @@ struct PredictorService {
         return cal.date(byAdding: .hour, value: 1, to: startOfHour) ?? now.addingTimeInterval(3600)
     }
 
-    /// Predict price at the next full hour (e.g. if it's 6:55, predict for 7:00). One prediction per crypto.
+    /// Predict price at the next full hour using current price + simple trend from recent history (so it can differ from current).
     func predictCrypto(type: String, currentPrice: Double?) {
         guard let current = currentPrice else { return }
         let now = Date()
         let target = Self.nextFullHour(after: now)
         let formatter = ISO8601DateFormatter()
-        let rounded = (current * 100).rounded() / 100
         let recent = getRecentCryptoPrices(type: type, limit: 24)
-        let explanation = recent.isEmpty
-            ? "Next hour: \(String(format: "%.2f", rounded)) from current price."
-            : "Next hour estimate $\(String(format: "%.0f", rounded)) from current price."
+
+        // Estimate next-hour move from recent prices (newest first). Use last observed change, capped at ±2% of current.
+        var predicted = current
+        if recent.count >= 2 {
+            let lastChange = recent[0] - recent[1]
+            let cap = current * 0.02
+            let cappedChange = max(-cap, min(cap, lastChange))
+            predicted = current + cappedChange
+        }
+
+        let rounded = (predicted * 100).rounded() / 100
+        let diff = rounded - current
+        let explanation: String
+        if abs(diff) < 0.01 {
+            explanation = "Next hour: same as current (no recent trend)."
+        } else if diff > 0 {
+            explanation = "Next hour: +$\(String(format: "%.2f", diff)) from current (upward trend)."
+        } else {
+            explanation = "Next hour: -$\(String(format: "%.2f", -diff)) from current (downward trend)."
+        }
         _ = store.insertPrediction(
             type: type,
             targetTime: formatter.string(from: target),
@@ -159,15 +175,17 @@ struct PredictorService {
             }
         }
 
-        // Weather: verify today's weather prediction with today_actual_high
+        // Weather: verify only when the prediction's target time (end of that day) has passed, so we don't mark "correct" before the day has ended.
         if let todayHigh = weatherResult.todayActualHigh {
             let todayISO = Calendar.la.dateISOString(for: now)
-            if let wPred = store.getWeatherPredictionForTargetDate(todayISO), wPred.actualValue == nil {
-                let predVal = wPred.predictedValue
-                let err = abs(todayHigh - predVal)
-                let passed = err < 3
-                store.updatePredictionActual(id: wPred.id, actualValue: todayHigh, passed: passed, errorMagnitude: err)
-            }
+            guard let wPred = store.getWeatherPredictionForTodayHigh(todayISO), wPred.actualValue == nil,
+                  let targetStr = wPred.targetTime else { return }
+            guard let target = ISO8601DateFormatter().date(from: targetStr.replacingOccurrences(of: "Z", with: "+00:00")) ?? ISO8601DateFormatter().date(from: targetStr) else { return }
+            guard now > target else { return }
+            let predVal = wPred.predictedValue
+            let err = abs(todayHigh - predVal)
+            let passed = err < 3
+            store.updatePredictionActual(id: wPred.id, actualValue: todayHigh, passed: passed, errorMagnitude: err)
         }
     }
 }

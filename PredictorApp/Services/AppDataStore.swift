@@ -21,8 +21,8 @@ final class AppDataStore: ObservableObject {
     private var todayISO: String { Calendar.la.dateISOString(for: Date()) }
     private var tomorrowISO: String { Calendar.la.tomorrowISOString() }
 
-    var latestWeatherToday: Prediction? { store.getWeatherPredictionForTargetDate(todayISO) }
-    var latestWeatherTomorrow: Prediction? { store.getWeatherPredictionForTargetDate(tomorrowISO) }
+    var latestWeatherToday: Prediction? { store.getWeatherPredictionForTodayHigh(todayISO) }
+    var latestWeatherTomorrow: Prediction? { store.getWeatherPredictionForTomorrowHigh(tomorrowISO) }
 
     var latestBitcoin: Prediction? { predictions.first { $0.type == PredictionType.bitcoin.rawValue } }
     var latestEthereum: Prediction? { predictions.first { $0.type == PredictionType.ethereum.rawValue } }

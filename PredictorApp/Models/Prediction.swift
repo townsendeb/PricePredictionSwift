@@ -205,13 +205,41 @@ extension Calendar {
     static func utcRangeForLADate(_ dateISO: String) -> (start: String, end: String)? {
         let parts = dateISO.split(separator: "-").compactMap { Int($0) }
         guard parts.count == 3 else { return nil }
-        var cal = Calendar.la
-        var comps = DateComponents(year: parts[0], month: parts[1], day: parts[2])
+        let cal = Calendar.la
+        let comps = DateComponents(year: parts[0], month: parts[1], day: parts[2])
         guard let startOfDay = cal.date(from: comps),
               let nextDay = cal.date(byAdding: .day, value: 1, to: startOfDay),
               let endOfDay = cal.date(byAdding: .second, value: -1, to: nextDay) else { return nil }
         let formatter = ISO8601DateFormatter()
         formatter.timeZone = TimeZone(identifier: "UTC")!
         return (formatter.string(from: startOfDay), formatter.string(from: endOfDay))
+    }
+
+    /// UTC ISO range for "today's high" slot: last moment of the given LA date. Use so we don't match the "tomorrow" row (start of same day).
+    static func utcRangeForLAEndOfDay(_ dateISO: String) -> (start: String, end: String)? {
+        let parts = dateISO.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        let cal = Calendar.la
+        let comps = DateComponents(year: parts[0], month: parts[1], day: parts[2])
+        guard let startOfDay = cal.date(from: comps),
+              let nextDay = cal.date(byAdding: .day, value: 1, to: startOfDay),
+              let endOfDay = cal.date(byAdding: .second, value: -1, to: nextDay),
+              let windowStart = cal.date(byAdding: .second, value: -2, to: endOfDay) else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = TimeZone(identifier: "UTC")!
+        return (formatter.string(from: windowStart), formatter.string(from: endOfDay))
+    }
+
+    /// UTC ISO range for "tomorrow's high" slot: first moment of the given LA date. Use so we don't match the "today" row (end of previous day).
+    static func utcRangeForLAStartOfDay(_ dateISO: String) -> (start: String, end: String)? {
+        let parts = dateISO.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        let cal = Calendar.la
+        let comps = DateComponents(year: parts[0], month: parts[1], day: parts[2])
+        guard let startOfDay = cal.date(from: comps),
+              let windowEnd = cal.date(byAdding: .second, value: 2, to: startOfDay) else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = TimeZone(identifier: "UTC")!
+        return (formatter.string(from: startOfDay), formatter.string(from: windowEnd))
     }
 }
