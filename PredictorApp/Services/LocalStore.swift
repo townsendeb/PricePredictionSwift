@@ -228,6 +228,23 @@ final class LocalStore {
         return out
     }
 
+    /// Last N predictions for a type (any actual_value). Use for crypto "recent" history so trend works before any verification.
+    func getPredictionsByType(type: String, limit: Int = 200) -> [Prediction] {
+        var out: [Prediction] = []
+        queue.sync {
+            let sql = "SELECT * FROM predictions WHERE type = ? ORDER BY created_at DESC LIMIT ?;"
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+            defer { sqlite3_finalize(stmt) }
+            sqlite3_bind_text(stmt, 1, type, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_int(stmt, 2, Int32(limit))
+            while sqlite3_step(stmt) == SQLITE_ROW, let p = rowToPrediction(stmt) {
+                out.append(p)
+            }
+        }
+        return out
+    }
+
     func getPredictionsWithActuals(type: String? = nil, limit: Int = 200) -> [Prediction] {
         var out: [Prediction] = []
         queue.sync {

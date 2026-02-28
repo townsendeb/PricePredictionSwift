@@ -107,7 +107,7 @@ struct PredictorService {
         let now = Date()
         let target = Self.nextFullHour(after: now)
         let formatter = ISO8601DateFormatter()
-        let recent = getRecentCryptoPrices(type: type, limit: 24)
+        let recent = getRecentCryptoPrices(type: type, limit: 24, currentPrice: current)
 
         // Estimate next-hour move from recent prices (newest first). Use last observed change, capped at ±2% of current.
         var predicted = current
@@ -139,11 +139,14 @@ struct PredictorService {
         )
     }
 
-    private func getRecentCryptoPrices(type: String, limit: Int) -> [Double] {
-        let rows = store.getPredictionsWithActuals(type: type, limit: limit)
-        let values = rows.compactMap { r -> Double? in
+    private func getRecentCryptoPrices(type: String, limit: Int, currentPrice: Double? = nil) -> [Double] {
+        let rows = store.getPredictionsByType(type: type, limit: limit)
+        var values = rows.compactMap { r -> Double? in
             if let a = r.actualValue { return a }
             return r.predictedValue
+        }
+        if let cur = currentPrice {
+            values = [cur] + values
         }
         return Array(values.suffix(limit))
     }
