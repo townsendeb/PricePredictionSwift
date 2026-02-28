@@ -1,0 +1,20 @@
+# Python (local tooling only; app has no Python dependency)
+.venv_pbx/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Xcode
+PredictorApp.xcodeproj/project.xcworkspace/xcuserdata/
+PredictorApp.xcodeproj/xcuserdata/
+*.moved-aside
+DerivedData/
+build/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+*.swp
+*.swo
