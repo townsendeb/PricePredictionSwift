@@ -27,14 +27,19 @@ struct PredictorService {
         formatter.timeZone = TimeZone(identifier: "UTC")!
 
         let recent = getRecentWeatherTemps(limit: 7)
+        let bias = getWeatherForecastBias(limit: 14)
 
-        // Today's high: only insert if no prediction for end-of-today slot yet. Always use todayActualHigh (or today-only fallbacks); never use tomorrowHigh.
+        // Today's high: only insert if no prediction for end-of-today slot yet. Blend forecast with 14-day bias (forecast vs actual).
         if store.getWeatherPredictionForTodayHigh(todayISO) == nil {
             let todayPredicted: Double
             let todayExplanation: String
             if let todayHigh = weatherResult.todayActualHigh {
-                todayPredicted = todayHigh
-                todayExplanation = "Forecast for today's high: \(Int(todayPredicted))°F."
+                todayPredicted = todayHigh + (bias ?? 0)
+                if let b = bias, abs(b) >= 0.5 {
+                    todayExplanation = "Forecast \(Int(weatherResult.todayActualHigh!))°F adjusted by \(b >= 0 ? "+" : "")\(String(format: "%.1f", b))°F from last 14 days (forecast vs actual) → \(Int(todayPredicted))°F."
+                } else {
+                    todayExplanation = "Forecast for today's high: \(Int(todayPredicted))°F."
+                }
             } else if !recent.isEmpty {
                 let avg = recent.reduce(0, +) / Double(recent.count)
                 todayPredicted = avg
@@ -54,20 +59,24 @@ struct PredictorService {
             )
         }
 
-        // Tomorrow's high: only insert if no prediction for start-of-tomorrow slot yet. Always use tomorrowHigh (or tomorrow-only fallbacks); never use todayActualHigh.
+        // Tomorrow's high: only insert if no prediction for start-of-tomorrow slot yet. Blend forecast with 14-day bias.
         if store.getWeatherPredictionForTomorrowHigh(tomorrowISO) == nil {
             let tomorrowPredicted: Double
             let tomorrowExplanation: String
-            if let tomorrowHigh = weatherResult.tomorrowHigh, recent.isEmpty {
-                tomorrowPredicted = tomorrowHigh
-                tomorrowExplanation = "Forecast for tomorrow's high: \(Int(tomorrowPredicted))°F."
+            if let tomorrowHigh = weatherResult.tomorrowHigh {
+                tomorrowPredicted = tomorrowHigh + (bias ?? 0)
+                if let b = bias, abs(b) >= 0.5 {
+                    tomorrowExplanation = "Forecast \(Int(tomorrowHigh))°F adjusted by \(b >= 0 ? "+" : "")\(String(format: "%.1f", b))°F from last 14 days (forecast vs actual) → \(Int(tomorrowPredicted))°F."
+                } else {
+                    tomorrowExplanation = "Forecast for tomorrow's high: \(Int(tomorrowPredicted))°F."
+                }
             } else if !recent.isEmpty {
                 let avg = recent.reduce(0, +) / Double(recent.count)
-                tomorrowPredicted = weatherResult.tomorrowHigh ?? avg
-                tomorrowExplanation = "Based on recent highs and forecast; predicting \(Int(tomorrowPredicted))°F for tomorrow's high."
+                tomorrowPredicted = avg
+                tomorrowExplanation = "Based on recent highs; predicting \(Int(tomorrowPredicted))°F for tomorrow's high."
             } else {
-                tomorrowPredicted = weatherResult.tomorrowHigh ?? 70
-                tomorrowExplanation = "Initial prediction for tomorrow: \(Int(tomorrowPredicted))°F from forecast."
+                tomorrowPredicted = 70
+                tomorrowExplanation = "Initial prediction for tomorrow: \(Int(tomorrowPredicted))°F (no forecast)."
             }
             let tomorrowRounded = (tomorrowPredicted * 10).rounded() / 10
             _ = store.insertPrediction(
@@ -79,6 +88,19 @@ struct PredictorService {
                 revision: 0
             )
         }
+    }
+
+    /// Average (actual − forecast) over the last N verified weather rows (14 days). Capped ±5°F. Nil if no history.
+    private func getWeatherForecastBias(limit: Int) -> Double? {
+        let rows = store.getPredictionsWithActuals(type: PredictionType.weather.rawValue, limit: limit)
+        let errors = rows.compactMap { r -> Double? in
+            guard let actual = r.actualValue else { return nil }
+            return actual - r.predictedValue
+        }
+        guard !errors.isEmpty else { return nil }
+        let avgBias = errors.reduce(0, +) / Double(errors.count)
+        let cap: Double = 5
+        return max(-cap, min(cap, avgBias))
     }
 
     private func getRecentWeatherTemps(limit: Int) -> [Double] {

@@ -4,6 +4,7 @@ import SwiftUI
 struct PredictorAppApp: App {
     @StateObject private var store = AppDataStore.shared
     @Environment(\.scenePhase) private var scenePhase
+    @State private var hasRefreshedOnLaunch = false
 
     var body: some Scene {
         #if os(macOS)
@@ -18,7 +19,8 @@ struct PredictorAppApp: App {
                 .environmentObject(store)
         }
         .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active {
+            if newPhase == .active, !hasRefreshedOnLaunch {
+                hasRefreshedOnLaunch = true
                 Task { await store.refreshAll() }
             }
         }

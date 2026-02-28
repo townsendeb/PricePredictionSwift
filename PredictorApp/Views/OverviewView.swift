@@ -107,8 +107,17 @@ struct OverviewView: View {
         .navigationTitle("Overview")
         .refreshable {
             isRefreshing = true
-            await store.refreshAll()
-            isRefreshing = false
+            defer { isRefreshing = false }
+            let refreshTask = Task.detached(priority: .userInitiated) {
+                await store.refreshAll()
+            }
+            do {
+                try await refreshTask.value
+            } catch is CancellationError {
+                // Refreshable or view lifecycle cancelled the wait; detached task may still complete and update store.
+            } catch {
+                store.errorMessage = error.localizedDescription
+            }
         }
         .overlay {
             if store.isLoading && !isRefreshing {

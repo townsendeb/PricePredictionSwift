@@ -24,7 +24,7 @@ A native **Swift/SwiftUI** app for **macOS, iPhone, and iPad** that predicts **L
 - **Storage & refresh**
   - **SQLite** in Application Support; no server or API keys required.
   - **Manual refresh:** pull to refresh on Overview.
-  - **Auto refresh:** when the app becomes active (e.g. opening from background), it runs a refresh once.
+  - **Auto refresh:** on first app open only (not when returning from background).
 
 ---
 
@@ -55,7 +55,7 @@ No accounts, API keys, or external services are required. The app uses public AP
 
 ```
 PredictorApp/
-├── PredictorAppApp.swift    # App entry; injects AppDataStore; auto-refresh on activate
+├── PredictorAppApp.swift    # App entry; injects AppDataStore; auto-refresh on first launch only
 ├── ContentView.swift        # Root navigation + tab (Overview, History, Learnings, Settings)
 ├── Models/
 │   ├── Prediction.swift     # Prediction + PredictionType, TargetSlot, DateFormatting, Calendar.la
@@ -81,8 +81,8 @@ PredictorApp/
 ## How predictions work (so you can tweak them)
 
 - **Weather**
-  - **Today’s high:** `weatherResult.todayActualHigh` (weather.gov “today” high or observation), with fallbacks (recent average or default).
-  - **Tomorrow’s high:** `weatherResult.tomorrowHigh` and optional blend with recent actuals from SQLite.
+  - **Today’s high:** Forecast from weather.gov (“today” high) **blended with a 14-day bias**: the app uses the last 14 days of verified weather (forecast vs actual) to compute the average error (actual − forecast), capped at ±5°F, and adds that to the forecast. So if the forecast has been low by 2°F on average, the prediction is forecast + 2°F. Fallbacks: recent average or 70°F when no forecast.
+  - **Tomorrow’s high:** Same 14-day bias applied to `weatherResult.tomorrowHigh`; fallbacks when no forecast.
   - Target times: end-of-today (LA) for today, start-of-tomorrow (LA) for tomorrow.
   - Predictions older than 14 days are pruned on each refresh (historical retention only).
 - **Crypto (each of BTC, ETH, SOL)**
