@@ -73,6 +73,13 @@ final class LocalStore {
             last_trained_at TEXT,
             metrics TEXT
         );
+        CREATE TABLE IF NOT EXISTS crypto_price_history (
+            type TEXT NOT NULL,
+            timestamp_ms INTEGER NOT NULL,
+            price REAL NOT NULL,
+            PRIMARY KEY (type, timestamp_ms)
+        );
+        CREATE INDEX IF NOT EXISTS idx_crypto_price_history_type_time ON crypto_price_history(type, timestamp_ms DESC);
         """
         queue.sync {
             executeStatements(sql)
@@ -318,6 +325,74 @@ final class LocalStore {
             }
         }
         return result
+    }
+
+    // MARK: - Crypto price history (7-day from CoinGecko)
+
+    /// Insert or replace price history points for one coin. Call after fetching market_chart.
+    func insertCryptoPriceHistory(type: String, points: [(timestampMs: Int64, price: Double)]) {
+        guard !points.isEmpty else { return }
+        queue.sync {
+            let sql = "INSERT OR REPLACE INTO crypto_price_history (type, timestamp_ms, price) VALUES (?, ?, ?);"
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+            defer { sqlite3_finalize(stmt) }
+            for point in points {
+                sqlite3_bind_text(stmt, 1, type, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_int64(stmt, 2, point.timestampMs)
+                sqlite3_bind_double(stmt, 3, point.price)
+                sqlite3_step(stmt)
+                sqlite3_reset(stmt)
+            }
+        }
+    }
+
+    /// Remove history older than the given number of seconds (e.g. 7 * 24 * 3600).
+    func deleteCryptoPriceHistoryOlderThan(seconds: TimeInterval) {
+        let cutoffMs = Int64(Date().timeIntervalSince1970 - seconds) * 1000
+        queue.sync {
+            let sql = "DELETE FROM crypto_price_history WHERE timestamp_ms < ?;"
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+            defer { sqlite3_finalize(stmt) }
+            sqlite3_bind_int64(stmt, 1, cutoffMs)
+            sqlite3_step(stmt)
+        }
+    }
+
+    /// Prices for trend (newest first), up to limit (e.g. 168 for 7 days hourly).
+    func getCryptoPriceHistory(type: String, limit: Int = 168) -> [Double] {
+        var out: [Double] = []
+        queue.sync {
+            let sql = "SELECT price FROM crypto_price_history WHERE type = ? ORDER BY timestamp_ms DESC LIMIT ?;"
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+            defer { sqlite3_finalize(stmt) }
+            sqlite3_bind_text(stmt, 1, type, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_int(stmt, 2, Int32(limit))
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                out.append(sqlite3_column_double(stmt, 0))
+            }
+        }
+        return out
+    }
+
+    /// Remove crypto predictions older than the given number of seconds (e.g. 7 * 24 * 3600).
+    func deletePredictionsOlderThan(types: [String], seconds: TimeInterval) {
+        guard !types.isEmpty else { return }
+        let cutoff = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-seconds))
+        queue.sync {
+            let placeholders = types.map { _ in "?" }.joined(separator: ",")
+            let sql = "DELETE FROM predictions WHERE type IN (\(placeholders)) AND created_at < ?;"
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+            defer { sqlite3_finalize(stmt) }
+            for (i, t) in types.enumerated() {
+                sqlite3_bind_text(stmt, Int32(i + 1), t, -1, SQLITE_TRANSIENT)
+            }
+            sqlite3_bind_text(stmt, Int32(types.count + 1), cutoff, -1, SQLITE_TRANSIENT)
+            sqlite3_step(stmt)
+        }
     }
 
     private func rowToPrediction(_ stmt: OpaquePointer?) -> Prediction? {

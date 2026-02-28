@@ -17,6 +17,12 @@ struct DataFetcher {
         var solana: Double?
     }
 
+    /// 7-day price history for one coin (timestamp_ms, price) from CoinGecko market_chart.
+    struct CryptoHistoryResult {
+        let coinId: String
+        let points: [(timestampMs: Int64, price: Double)]
+    }
+
     /// Fetch LA weather; returns tomorrow's forecast high and today's actual (or forecast) high.
     func fetchWeather() async throws -> WeatherResult {
         let (data, _) = try await URLSession.shared.data(from: Self.weatherURL)
@@ -57,7 +63,8 @@ struct DataFetcher {
                 if tomorrowHigh == nil { tomorrowHigh = Double(t) }
                 else { tomorrowHigh = max(tomorrowHigh!, Double(t)) }
             }
-            if todayStr == nameLower || nameLower.contains(todayStr), labelLower == "high" {
+            // API uses "Today"/"Tonight", not weekday name; also match weekday in case format varies.
+            if (nameLower == "today" || todayStr == nameLower || nameLower.contains(todayStr)), labelLower == "high" {
                 if todayActual == nil { todayActual = Double(t) }
                 else { todayActual = max(todayActual!, Double(t)) }
             }
@@ -96,6 +103,27 @@ struct DataFetcher {
             ethereum: price(from: "ethereum"),
             solana: price(from: "solana")
         )
+    }
+
+    /// Fetch 7-day price history for one coin (CoinGecko market_chart; returns hourly points).
+    static func marketChartURL(coinId: String, days: Int = 7) -> URL {
+        URL(string: "https://api.coingecko.com/api/v3/coins/\(coinId)/market_chart?vs_currency=usd&days=\(days)")!
+    }
+
+    func fetchCryptoHistory(coinId: String, days: Int = 7) async throws -> CryptoHistoryResult {
+        let url = Self.marketChartURL(coinId: coinId, days: days)
+        let (data, _) = try await URLSession.shared.data(from: url)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let pricesRaw = json["prices"] as? [[Any]] else {
+            return CryptoHistoryResult(coinId: coinId, points: [])
+        }
+        let points: [(timestampMs: Int64, price: Double)] = pricesRaw.compactMap { pair in
+            guard pair.count >= 2,
+                  let tsNum = pair[0] as? NSNumber,
+                  let pNum = pair[1] as? NSNumber else { return nil }
+            return (timestampMs: tsNum.int64Value, price: pNum.doubleValue)
+        }
+        return CryptoHistoryResult(coinId: coinId, points: points)
     }
 }
 

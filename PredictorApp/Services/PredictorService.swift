@@ -140,10 +140,16 @@ struct PredictorService {
     }
 
     private func getRecentCryptoPrices(type: String, limit: Int, currentPrice: Double? = nil) -> [Double] {
-        let rows = store.getPredictionsByType(type: type, limit: limit)
-        var values = rows.compactMap { r -> Double? in
-            if let a = r.actualValue { return a }
-            return r.predictedValue
+        let history = store.getCryptoPriceHistory(type: type, limit: 168)
+        var values: [Double]
+        if !history.isEmpty {
+            values = history
+        } else {
+            let rows = store.getPredictionsByType(type: type, limit: limit)
+            values = rows.compactMap { r -> Double? in
+                if let a = r.actualValue { return a }
+                return r.predictedValue
+            }
         }
         if let cur = currentPrice {
             values = [cur] + values

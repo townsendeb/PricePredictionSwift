@@ -1,4 +1,4 @@
-# PredictorApp
+# PricePredictionSwift
 
 A native **Swift/SwiftUI** app for **macOS, iPhone, and iPad** that predicts **LA weather** (today’s and tomorrow’s high) and **crypto prices** (Bitcoin, Ethereum, Solana at 10am and 5pm EST). All logic runs in the app; data is stored locally in SQLite. No backend, no cloud, no Python—just open the project in Xcode and run.
 
@@ -11,10 +11,11 @@ A native **Swift/SwiftUI** app for **macOS, iPhone, and iPad** that predicts **L
 - **Weather**
   - Predictions for **today’s high** and **tomorrow’s high** (LA area).
   - Uses [weather.gov](https://forecast.weather.gov/) MapClick API; today uses the “today” forecast/observation, tomorrow uses the “tomorrow” forecast so the two numbers stay distinct.
+  - Weather predictions older than **14 days** are deleted from local storage (kept for history only).
 - **Crypto (BTC, ETH, SOL)**
-  - Predictions for **10:00 AM EST** and **5:00 PM EST** each day.
-  - Time-based logic: each target uses “hours until” that time and optional **historical drift** (from same-day 10am→5pm actuals when available).
-  - Prices from [CoinGecko](https://www.coingecko.com/) (single request for all three).
+  - **Next-hour** price prediction for each asset; uses **7 days of price history** from [CoinGecko](https://www.coingecko.com/) for trend (current + last change, capped ±2%).
+  - History and crypto predictions older than 7 days are removed from local storage.
+  - Current prices from CoinGecko simple/price; history from market_chart (one request per coin on refresh).
 - **History**
   - Past predictions with actuals; **high/low** vs actual (e.g. “Prediction was low” when actual > predicted).
   - Filter by type (Weather, BTC, ETH, SOL).
@@ -31,7 +32,7 @@ A native **Swift/SwiftUI** app for **macOS, iPhone, and iPad** that predicts **L
 
 1. **Clone the repo**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/PredictorApp.git
+   git clone https://github.com/townsend/PricePredictionSwift.git
    cd PredictorApp
    ```
 
@@ -83,10 +84,11 @@ PredictorApp/
   - **Today’s high:** `weatherResult.todayActualHigh` (weather.gov “today” high or observation), with fallbacks (recent average or default).
   - **Tomorrow’s high:** `weatherResult.tomorrowHigh` and optional blend with recent actuals from SQLite.
   - Target times: end-of-today (LA) for today, start-of-tomorrow (LA) for tomorrow.
+  - Predictions older than 14 days are pruned on each refresh (historical retention only).
 - **Crypto (each of BTC, ETH, SOL)**
-  - **10am and 5pm EST:** Next occurrence of 10:00 and 17:00 in `America/New_York` from “now.”
-  - **Hourly drift (optional):** From `getPredictionsWithActuals`: same calendar day (EST) 10am vs 5pm actuals → `(5pm - 10am) / 10am / 7`, averaged and capped at ±1% per hour.
-  - **Prediction:** `currentPrice * (1 + drift)^hoursUntilTarget` for 10am and 5pm (rounded to 2 decimals). So 10am and 5pm differ by time horizon and, when available, historical drift.
+  - **Next hour:** Target is the next full clock hour (e.g. 6:55 → 7:00). On each refresh the app fetches **7 days of price history** from CoinGecko’s `market_chart` API and stores it in `crypto_price_history`. History and crypto predictions older than 7 days are deleted.
+  - **Trend:** Recent prices = current price + last 168 points from stored history (newest first). If history is empty, fallback to your own past prediction/actual rows. Prediction = current + last observed change, capped at ±2% of current.
+  - **Prediction:** Rounded to 2 decimals; explanation shows “+$X from current” or “-$X from current” when the trend is applied.
 - **Verification**
   - **Weather:** Prediction whose target date is “today” (LA) is updated with `todayActualHigh` when you refresh after the day is in progress.
   - **Crypto:** Predictions whose `target_time` is more than 30 minutes in the past get `actual_value` set from the current price at refresh time. Each prediction is only updated once (no repeated overwrites).
@@ -100,7 +102,8 @@ All of this lives in `PredictorService` and `DataFetcher`; you can replace or ex
 | Data        | Source | Auth |
 |------------|--------|------|
 | LA weather | [weather.gov MapClick](https://forecast.weather.gov/MapClick.php?lat=34.0522&lon=-118.2437&unit=0&lg=english&FcstType=json) | None |
-| BTC/ETH/SOL| [CoinGecko simple/price](https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd) | None |
+| BTC/ETH/SOL (current) | [CoinGecko simple/price](https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd) | None |
+| BTC/ETH/SOL (7-day history) | [CoinGecko market_chart](https://docs.coingecko.com/reference/coins-id-market-chart) (`/coins/{id}/market_chart?vs_currency=usd&days=7`) | None |
 
 URLs are in `DataFetcher.swift`. You can point to different endpoints or add API keys there if you fork.
 

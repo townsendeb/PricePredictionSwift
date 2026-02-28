@@ -45,6 +45,17 @@ final class AppDataStore: ObservableObject {
             async let cryptoTask = fetcher.fetchCrypto()
             let (weatherResult, cryptoResult) = try await (weatherTask, cryptoTask)
 
+            let sevenDays: TimeInterval = 7 * 24 * 3600
+            for cryptoType in PredictionType.cryptoTypes {
+                let coinId = cryptoType.rawValue
+                if let history = try? await fetcher.fetchCryptoHistory(coinId: coinId, days: 7), !history.points.isEmpty {
+                    store.insertCryptoPriceHistory(type: coinId, points: history.points)
+                }
+            }
+            store.deleteCryptoPriceHistoryOlderThan(seconds: sevenDays)
+            store.deletePredictionsOlderThan(types: PredictionType.cryptoTypes.map(\.rawValue), seconds: sevenDays)
+            store.deletePredictionsOlderThan(types: [PredictionType.weather.rawValue], seconds: 14 * 24 * 3600)
+
             let pred = predictor
             pred.predictWeather(weatherResult: weatherResult)
             for cryptoType in PredictionType.cryptoTypes {

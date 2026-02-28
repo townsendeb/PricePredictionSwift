@@ -15,6 +15,17 @@ struct OverviewView: View {
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 16) {
+                Text("Current Predictions")
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                
+                Text("Weather")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical)
+
                 if let msg = store.errorMessage {
                     HStack(spacing: 10) {
                         Image(systemName: "exclamationmark.triangle.fill")
@@ -50,6 +61,12 @@ struct OverviewView: View {
                         weatherSectionContent(w)
                     }
                 }
+                
+                Text("Crypto")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical)
 
                 if let b = store.latestBitcoin {
                     predictionCard(title: "Bitcoin", subtitle: "Next hour", icon: "bitcoinsign.circle.fill", gradient: AppTheme.cryptoGradient) {
